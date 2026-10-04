@@ -1,10 +1,18 @@
 {
   "name": "prefecture-modmail",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
-  "description": "Support Discord par messages privés avec configuration guidée",
+  "description": "Support Discord par messages priv\u00e9s avec configuration guid\u00e9e",
   "main": "index.js",
-  "engines": { "node": ">=22.12.0" },
-  "scripts": { "start": "node index.js", "test": "node --test", "check": "node --check index.js" },
-  "dependencies": { "discord.js": "14.27.0" }
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test",
+    "check": "node --check index.js"
+  },
+  "dependencies": {
+    "discord.js": "14.27.0"
+  }
 }

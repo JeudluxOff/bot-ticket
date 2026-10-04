@@ -1,14 +1,14 @@
-# Modmail Préfecture — version 2
+# Modmail Préfecture — version 2.1 — plusieurs services
 
 Un bot de support **par messages privés**, en français, pour un seul serveur Discord.
-Un utilisateur écrit au bot → un salon privé est créé pour l’équipe → les réponses de l’équipe repartent en MP.
+Un utilisateur écrit au bot → il choisit un service dans un menu → un salon privé est créé dans la catégorie de ce service → les réponses de l’équipe repartent en MP. Son premier message est conservé. Après fermeture, il peut choisir à nouveau.
 L’utilisateur peut être un membre ordinaire, un membre du support ou un administrateur. Le bot n’exige pas qu’il ait un rôle particulier.
 
 ## Installation sur ton hébergement FadeHost
 
 ### 1. Remplacer le code dans GitHub
 
-1. Avant de remplacer l’ancienne version, ferme et conserve les anciens tickets utiles. Cette version repart sur un format de données neuf et ne migre pas les tickets de l’ancien script.
+1. Si tu utilises déjà notre V2 avec `state-v2.json`, conserve le même `DATA_DIR` : la configuration et les conversations sont migrées automatiquement. Si tu utilises un autre ancien script, ferme et conserve ses tickets utiles avant le remplacement.
 2. Décompresse le ZIP sur ton ordinateur.
 3. Ouvre le dépôt `JeudluxOff/bot-ticket` sur GitHub.
 4. **Add file → Upload files** : dépose le contenu de l’archive à la racine du dépôt.
@@ -38,7 +38,7 @@ Commande de démarrage : `npm start`. Runtime : **Node.js 22.12 ou ultérieur** 
 La console doit afficher :
 
 ```text
-✅ Connecté en tant que ... — Modmail v2
+✅ Connecté en tant que ... — Modmail v2.1
 Configuration requise : lance !setup sur ton serveur.
 ```
 
@@ -65,15 +65,15 @@ Autorise aussi ces permissions dans la catégorie et les salons utilisés, si le
 
 Crée ou choisis :
 
-- Une catégorie **CONVERSATIONS** où seront créés les salons `mp-0001-pseudo`.
-- Un salon textuel privé **transcriptions**.
-- Un ou plusieurs rôles d’équipe, par exemple **Support** et **Administration**. Attribue-les aux personnes autorisées à répondre.
+- Les catégories de tes services : **Ticket Support**, **Ticket Modération**, **Ticket Plainte**, **Ticket Remboursement**, **Ticket Développement**, **Ticket Responsable**. Tu peux utiliser tes catégories existantes.
+- Un salon textuel privé de transcriptions pour chaque service, ou un salon partagé si les équipes doivent pouvoir lire les archives des services concernés.
+- Un ou plusieurs rôles par service (1 à 5), attribués aux personnes autorisées à répondre.
 - Facultatif : un salon privé **commandes-support** pour les commandes hors conversation.
 
 Pour `transcriptions` et `commandes-support`, dans **Modifier le salon → Permissions** :
 
 - `@everyone` : refuse **Voir le salon**.
-- Les rôles support sélectionnés : autorise **Voir le salon**, **Envoyer des messages**, **Lire l’historique**.
+- Les rôles sélectionnés pour les services utilisant ce salon : autorise **Voir le salon**, **Envoyer des messages**, **Lire l’historique**.
 - Le rôle du bot : autorise voir, envoyer, lire, intégrer des liens et joindre des fichiers.
 - Retire les autorisations de visibilité des autres rôles ou utilisateurs. Les rôles ayant Administrateur restent acceptés.
 
@@ -88,7 +88,9 @@ Avec un compte administrateur, envoie sur ton serveur :
 !setup
 ```
 
-Clique sur **Configurer le bot**. Un formulaire visible uniquement par toi apparaît, avec quatre menus :
+Clique sur **Configurer les services**. Le panneau est visible uniquement par toi. À la première installation, six services sont proposés : Support, Modération, Plainte, Remboursement, Développement et Responsable. Après migration de la V2, ton ancien réglage devient le service Support : utilise **Ajouter les 6 services** pour ajouter les autres sans doublon.
+
+Sélectionne un service dans la liste. Renseigne ses quatre menus :
 
 1. **Catégorie des conversations**.
 2. **Salon privé des transcriptions**.
@@ -100,19 +102,22 @@ Modes disponibles :
 - **Réponse directe + commandes** : tout message ordinaire envoyé par le staff dans un salon de conversation est envoyé en MP. C’est le mode proposé par défaut. Utilise `!note` pour une note interne.
 - **Commandes !r et !ar uniquement** : seuls `!r`, `!ar` et les messages automatiques envoient des MP. Les messages ordinaires restent dans le salon et sont archivés comme discussion interne.
 
-Clique **Enregistrer**. Aucun panneau public de création de tickets n’est nécessaire : ce sont les MP qui ouvrent les conversations.
+Clique **Retour aux services**, configure le suivant, puis clique **Tout enregistrer**. Tous les services sont validés et enregistrés ensemble : un service incomplet empêche la validation de l’ensemble. Retire les services inutilisés avec **Retirer ce service**. Tu peux ajouter et renommer des services, jusqu’à 25.
+
+Aucun panneau public de création de tickets n’est nécessaire : le menu de choix arrive dans les MP du bot. La session de setup reste valable 60 minutes après ta dernière action.
 Un membre support n’a pas besoin d’être administrateur pour répondre. Seuls le setup, l’affichage de configuration et la modification des textes automatiques sont réservés aux administrateurs.
 
 ### 6. Test réel après installation
 
 1. Envoie `Bonjour, ceci est un test` en MP au bot.
-2. Vérifie qu’il confirme l’ouverture et que le premier message apparaît dans la catégorie choisie.
+2. Choisis un service dans le menu reçu en MP. Vérifie que le premier message apparaît dans un salon de la catégorie de ce service.
 3. Dans le salon créé, envoie `!r Bonjour, nous avons reçu ta demande`.
 4. Vérifie que la réponse arrive dans tes MP.
 5. Teste `!ar Test anonyme` : le MP affiche **Équipe support**.
 6. Teste une pièce jointe.
 7. Ajoute `!note Note interne de test` : elle ne doit pas apparaître en MP.
-8. Lance `!close` : le salon disparaît après l’envoi du fichier dans `transcriptions`.
+8. Lance `!close` : le salon disparaît après l’envoi du fichier dans le salon de transcriptions du service.
+9. En MP, le menu revient. Choisis un autre service et vérifie que la nouvelle conversation utilise la bonne catégorie et les bons rôles.
 
 Tu peux faire ce test avec ton propre compte administrateur. Pour contrôler les accès, fais aussi un essai avec un membre support sans Administrateur et un membre ordinaire.
 
@@ -122,6 +127,7 @@ Dans le salon d’une conversation, l’utilisateur concerné est reconnu automa
 
 | Commande | Résultat |
 |---|---|
+| `!menu` (en MP uniquement) | Réaffiche les services avant une nouvelle conversation |
 | `!help`, `!aide`, `!commands` | Affiche les commandes et le mode de réponse |
 | `!r texte` | Réponse avec le nom d’affichage du membre support |
 | `!ar texte` | Réponse sous le nom Équipe support |
@@ -143,7 +149,7 @@ Dans le salon d’une conversation, l’utilisateur concerné est reconnu automa
 | `!alert cancel` | Désactive tes alertes |
 | `!edit numéro nouveau texte` | Modifie le texte d’une réponse déjà envoyée en MP |
 | `!delete numéro` | Supprime une réponse envoyée en MP |
-| `!open ID` | Ouvre une conversation à l’initiative du staff et avertit l’utilisateur en MP |
+| `!open ID nom du service` | Ouvre une conversation à l’initiative du staff et avertit l’utilisateur en MP |
 | `!!wipe` | Envoie le formulaire de demande de wipe |
 | `!!mortrp` | Envoie le formulaire de demande de mort RP |
 | `!setup` | Configuration guidée, administrateurs uniquement |
@@ -160,7 +166,7 @@ Les réponses automatiques sont anonymes côté utilisateur. Leur auteur réel f
 Dans un **salon privé réservé à l’équipe**, ajoute l’identifiant de l’utilisateur après la commande :
 
 ```text
-!open 123456789012345678
+!open 123456789012345678 Support
 !r 123456789012345678 Bonjour, comment pouvons-nous t’aider ?
 !ar 123456789012345678 Ta demande est en cours d’étude.
 !close 123456789012345678 15m
@@ -182,13 +188,18 @@ Le numéro d’une réponse est affiché dans le pied du message du bot. `!edit`
 
 ## Comportements importants
 
-- Une seule conversation active par utilisateur. Le premier MP est bien conservé et relayé.
+- Une seule conversation active par utilisateur. Aucun salon n’est créé avant le choix du service. Jusqu’à 20 messages sont conservés en attente, y compris après redémarrage ; au-delà, le bot demande de choisir avant de continuer.
+- Après chaque fermeture normale, le menu revient en MP. Après une fermeture silencieuse, il revient au prochain message. `!menu` permet de le réafficher. Les anciens menus ne peuvent pas ouvrir une nouvelle conversation après une clôture.
+- Les membres des rôles du service peuvent répondre sans être administrateurs. Les autres équipes ne peuvent pas répondre ni consulter ses notes par commandes.
+- Les notes et l’historique consultés dans une conversation sont limités à son service. Les commandes hors conversation doivent être lancées dans un salon privé adapté aux rôles des données demandées. Pour ajouter une note, une conversation doit être ouverte.
+- `!open ID nom du service` permet au staff d’ouvrir une conversation ; le nom est facultatif si un seul service lui est accessible.
+- `!move` change seulement la catégorie du salon : les rôles, le service et la destination des transcriptions restent les mêmes.
 - Les messages simultanés d’un même utilisateur sont traités dans l’ordre.
 - Les fichiers ordinaires sont transférés ; les fichiers trop gros ou impossibles à recopier sont fournis par lien. Les stickers sont représentés par leur nom/lien.
 - Les modifications ou suppressions faites directement par l’utilisateur dans ses MP ne sont pas synchronisées : la transcription conserve la version reçue. Les modifications via `!edit` sont bien historisées.
 - Une réponse entrante annule automatiquement la fermeture programmée.
 - Les échéances sont vérifiées toutes les 15 secondes. Elles restent enregistrées après redémarrage ; la fermeture peut donc intervenir jusqu’à environ 15 secondes après l’heure prévue, hors panne Discord.
-- `!block` bloque les MP entrants, y compris pour une conversation déjà ouverte. Il ne ferme pas automatiquement le salon et n’empêche pas le staff d’envoyer une réponse explicative.
+- `!block` est global à tous les services et bloque les MP entrants, y compris pour une conversation déjà ouverte. Il ne ferme pas automatiquement le salon et n’empêche pas le staff d’envoyer une réponse explicative.
 - Les notes et discussions internes ne partent jamais en MP. La transcription complète est envoyée uniquement dans le salon de l’équipe.
 - La transcription n’est pas limitée aux 100 derniers messages. Elle inclut les échanges enregistrés, les auteurs, les corrections par commandes et les notes.
 - Les anciennes versions/suppressions restent dans l’archive interne pour le suivi. Supprimer une note ne réécrit pas les archives déjà constituées.
@@ -208,7 +219,7 @@ Le fichier `state-v2.json` est écrit de façon atomique et possède une copie `
 Sur FadeHost, **ne stocke pas les données à côté du code dans `/data/app`** : ce dossier est remis à l’état du dépôt lors d’un redéploiement. Utilise `DATA_DIR=/data/storage/modmail`.
 Lance une seule instance du bot sur ce dossier de données. Cette version vise un serveur de petite ou moyenne taille ; pour un très gros volume, une base de données et une stratégie de rétention seront préférables.
 
-`!setup` peut réparer la catégorie ou le salon des transcriptions même avec des conversations ouvertes. Un changement des rôles autorisés ou du mode de réponse nécessite de fermer les conversations en cours, pour conserver des accès cohérents.
+`!setup` peut être utilisé avec des conversations ouvertes. Celles-ci conservent leurs rôles, leur mode de réponse et leur catégorie de restauration ; les nouveaux réglages s’appliquent aux prochaines conversations. La destination des transcriptions suit la configuration actuelle du service, ce qui permet de réparer un salon de transcriptions supprimé. Retirer un service du menu ne supprime pas ses conversations actives.
 
 Si `state-v2.json` est corrompu, le bot s’arrête sans le remplacer par un fichier vide. Arrête le bot, conserve une copie du fichier abîmé, puis restaure une sauvegarde valide.
 
@@ -219,7 +230,7 @@ npm ci
 npm test
 ```
 
-28 tests automatisés couvrent le premier MP, les accès, la configuration interactive, le relais, les fichiers, les notes, les commandes, les transcriptions de plus de 100 messages et les redémarrages.
+40 tests automatisés couvrent le premier MP, les accès, la configuration interactive, le relais, les fichiers, les notes, les commandes, les transcriptions de plus de 100 messages et les redémarrages.
 Ils utilisent de faux objets Discord pour ne pas contacter de vrais utilisateurs. L’intégration avec ton token, ton serveur et les permissions réelles doit être validée avec le test manuel ci-dessus.
 
 ## Exécution locale (facultative)

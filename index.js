@@ -34,11 +34,11 @@ function createBot({ client, store }) {
     }
   });
   client.on(Events.InteractionCreate, async i => {
-    if (!i.isMessageComponent()) return;
-    try { await setup.handle(i); }
+    if (!i.isMessageComponent() && !i.isModalSubmit()) return;
+    try { if (!await service.handleChoice(i)) await setup.handle(i); }
     catch (error) {
       if (!(error instanceof UserError)) console.error('Configuration :', error.code || error.name);
-      const payload = { content: '❌ ' + safeError(error), flags: MessageFlags.Ephemeral, allowedMentions: NO_MENTIONS };
+      const payload = { content: '❌ ' + safeError(error), ...(i.guildId ? { flags: MessageFlags.Ephemeral } : {}), allowedMentions: NO_MENTIONS };
       if (i.replied || i.deferred) await i.followUp(payload).catch(() => {});
       else await i.reply(payload).catch(() => {});
     }
@@ -52,7 +52,7 @@ function createBot({ client, store }) {
     finally { ticking = false; }
   };
   client.once(Events.ClientReady, () => {
-    console.log(`✅ Connecté en tant que ${client.user.tag} — Modmail v2`);
+    console.log(`✅ Connecté en tant que ${client.user.tag} — Modmail v2.1`);
     console.log(store.state.config ? 'Configuration chargée. !help pour les commandes.' : 'Configuration requise : lance !setup sur ton serveur.');
     console.log(`Données : ${store.directory}`);
     for (const t of Object.values(store.state.tickets)) {

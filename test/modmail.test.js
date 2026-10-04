@@ -61,7 +61,16 @@ function env(t) {
     attachments: new Collection(), stickers: new Collection(), react: async () => {}, reply: p => channel.send(p) }; }
   const dm = channels.get('dm-' + IDS.user);
   return { store, directory, service, client, guild, channels, members, logs, team, user, staff, staffUser, outsider, other, admin, dm, msg,
-    incoming: text => service.incoming(msg(text, dm, user, null)),
+    rawIncoming: text => service.incoming(msg(text, dm, user, null)),
+    choose: (routeId = store.state.config.services[0].id, token = store.state.pending[user.id]?.token, instance = service) => instance.handleChoice({
+      customId: `contact:${user.id}:${token}`, user, values: [routeId], deferUpdate: async () => {}, editReply: async p => { for (const c of p.components || []) c.toJSON(); }
+    }),
+    incoming: async text => {
+      await service.incoming(msg(text, dm, user, null));
+      if (!store.ticketForUser(user.id) && store.state.pending[user.id] && !store.blocked(user.id)) await service.handleChoice({
+        customId: `contact:${user.id}:${store.state.pending[user.id].token}`, user, values: [store.state.config.services[0].id], deferUpdate: async () => {}, editReply: async () => {}
+      });
+    },
     command: (text, channel = team, actor = staffUser, member = staff) => service.command(msg(text, channel, actor, member), parseCommand(text)), makeChannel };
 }
 
@@ -109,7 +118,7 @@ test('internal notes never reach the customer, including in the staff transcript
   await e.command('!note Réservé équipe', ch); await e.command('!notes', ch);
   assert.equal(e.dm.sent.length, count);
   await e.command('!close', ch);
-  assert.equal(e.dm.sent.length, count + 1);
+  assert.equal(e.dm.sent.length, count + 2);
   assert.ok(!e.dm.sent.at(-1).files);
   const archive = e.logs.sent[0].files[0].attachment.toString(); assert.match(archive, /Réservé équipe/);
   assert.ok(!Object.keys(e.store.state.tickets).length); assert.ok(ch.deleted);
@@ -158,7 +167,7 @@ test('expired block is removed after restart', t => {
 test('direct reply relays text while command mode keeps discussion internal', async t => {
   const e = env(t); await e.incoming('Bonjour'); const ticket = e.store.ticketForUser(IDS.user), ch = e.channels.get(ticket.channelId);
   await e.service.direct(e.msg('Réponse directe', ch)); assert.equal(e.dm.sent.at(-1).embeds[0].toJSON().description, 'Réponse directe');
-  const count = e.dm.sent.length; e.store.state.config.replyMode = 'commands';
+  const count = e.dm.sent.length; ticket.route.replyMode = 'commands';
   await e.service.direct(e.msg('Discussion équipe', ch)); assert.equal(e.dm.sent.length, count);
   assert.match(transcript(ticket), /Discussion équipe/);
 });
@@ -209,9 +218,9 @@ test('failed staff mirror retries without resending the DM', async t => {
 
 test('setup components serialize and reject public transcript destination', async t => {
   const e = env(t); const setup = new Setup(e.client, e.store);
-  const screen = setup.screen({ id: 'abc', config: e.store.state.config }); assert.equal(screen.components.length, 5);
-  screen.components.forEach(c => c.toJSON()); await setup.validate(e.guild, e.store.state.config);
-  e.logs.permissionOverwrites.cache.clear(); await assert.rejects(setup.validate(e.guild, e.store.state.config), /transcriptions/);
+  const screen = setup.screen({ id: 'abc', config: e.store.state.config, selected: e.store.state.config.services[0].id }); assert.equal(screen.components.length, 5);
+  screen.components.forEach(c => c.toJSON()); await setup.validate(e.guild, e.store.state.config.services[0]);
+  e.logs.permissionOverwrites.cache.clear(); await assert.rejects(setup.validate(e.guild, e.store.state.config.services[0]), /transcriptions/);
 });
 
 test('setup is restricted to administrators and session owner', async t => {
@@ -242,17 +251,18 @@ test('parsing durations and command text preserves multiline replies', () => {
 
 test('setup saves all choices through interactive session and survives restart', async t => {
   const e = env(t); const setup = new Setup(e.client, e.store); e.members.set(IDS.staff, e.admin);
-  const config = structuredClone(e.store.state.config); e.store.state.config = null;
+  const config = structuredClone(e.store.state.config.services[0]); e.store.state.config = null;
   const i = { customId: 'setup:start:' + IDS.staff, guildId: IDS.guild, guild: e.guild, user: e.staffUser,
     deferReply: async () => {}, deferUpdate: async () => {}, editReply: async payload => {
       for (const row of payload.components || []) row.toJSON();
     } };
   await setup.handle(i); const id = [...setup.sessions.keys()][0];
+  const session = setup.sessions.get(id); session.config.services = [session.config.services[0]]; session.selected = session.config.services[0].id;
   for (const [action, values] of [['category', [config.categoryId]], ['logs', [config.logChannelId]], ['roles', config.staffRoleIds], ['mode', ['commands']]]) {
     i.customId = `setup:${action}:${id}`; i.values = values; await setup.handle(i);
   }
   i.customId = `setup:save:${id}`; await setup.handle(i);
-  const persisted = new Store(e.directory).state.config; assert.equal(persisted.replyMode, 'commands'); assert.deepEqual(persisted.staffRoleIds, [IDS.role]);
+  const persisted = new Store(e.directory).state.config.services[0]; assert.equal(persisted.replyMode, 'commands'); assert.deepEqual(persisted.staffRoleIds, [IDS.role]);
 });
 
 test('template changes need administrator and are used in canned DM', async t => {
@@ -283,4 +293,163 @@ test('entrypoint routes non-admin staff messages using fresh guild member', asyn
   await handler(e.msg('!r Test routage', ch));
   assert.equal(e.dm.sent.at(-1).embeds[0].toJSON().description, 'Test routage');
   bot.stop();
+});
+
+function addService(e) {
+  const roleId = '100000000000000009', categoryId = '100000000000000010', logId = '100000000000000011';
+  e.guild.roles.cache.set(roleId, { id: roleId, managed: false, permissions: bit([]) });
+  const category = e.makeChannel(categoryId); category.type = ChannelType.GuildCategory;
+  const logs = e.makeChannel(logId);
+  logs.permissionOverwrites.cache.delete(IDS.role);
+  logs.permissionOverwrites.cache.set(roleId, { id: roleId, type: 0, allow: bit([P.ViewChannel]), deny: bit([]) });
+  const route = { id: 'moderation', name: 'Modération', categoryId, logChannelId: logId, staffRoleIds: [roleId], replyMode: 'commands' };
+  e.store.state.config.services.push(route); e.store.save();
+  const member = { ...e.outsider, roles: { cache: new Collection([[roleId, {}]]) } }; e.members.set(IDS.other, member);
+  return { route, member, logs };
+}
+
+test('no channel before selection; first messages and attachments survive restart and choice', async t => {
+  const e = env(t), second = addService(e);
+  const message = e.msg('Premier message conservé', e.dm, e.user, null);
+  message.attachments.set('file', { name: 'preuve.png', url: 'https://cdn.discordapp.com/attachments/1.png', size: 20 });
+  await e.service.incoming(message); await e.rawIncoming('Deuxième message');
+  assert.equal(e.store.ticketForUser(IDS.user), undefined);
+  const options = e.dm.sent[0].components[0].toJSON().components[0].options;
+  assert.deepEqual(options.map(v => v.label), ['Support', 'Modération']);
+  const store = new Store(e.directory), service = new Modmail(e.client, store);
+  await e.choose(second.route.id, store.state.pending[IDS.user].token, service);
+  const ticket = store.ticketForUser(IDS.user), ch = e.channels.get(ticket.channelId);
+  assert.equal(ch.createdOptions.parent, second.route.categoryId);
+  assert.deepEqual(ticket.events.filter(v => v.type === 'entrant').map(v => v.text), ['Premier message conservé', 'Deuxième message']);
+  assert.equal(ticket.events.find(v => v.type === 'entrant').attachments[0].name, 'preuve.png');
+  assert.ok(ch.createdOptions.permissionOverwrites.find(v => v.id === second.route.staffRoleIds[0]));
+  assert.ok(!ch.createdOptions.permissionOverwrites.find(v => v.id === IDS.role));
+  assert.equal(store.state.pending[IDS.user], undefined);
+});
+
+test('double selection creates one ticket and imports first message once', async t => {
+  const e = env(t); await e.rawIncoming('Unique'); const token = e.store.state.pending[IDS.user].token;
+  await Promise.all([e.choose('support', token), e.choose('support', token)]);
+  assert.equal(Object.keys(e.store.state.tickets).length, 1);
+  assert.equal(e.store.ticketForUser(IDS.user).events.filter(v => v.type === 'entrant').length, 1);
+});
+
+test('closure offers a fresh menu and allows a different service; old menu cannot reopen', async t => {
+  const e = env(t), second = addService(e); await e.rawIncoming('Support');
+  const oldToken = e.store.state.pending[IDS.user].token; await e.choose();
+  await e.service.close(e.store.ticketForUser(IDS.user), e.staffUser);
+  assert.ok(e.dm.sent.at(-1).components);
+  const newToken = e.store.state.pending[IDS.user].token; assert.notEqual(newToken, oldToken);
+  await assert.rejects(e.choose('support', oldToken), /ancien/);
+  await e.rawIncoming('Plainte après fermeture'); await e.choose(second.route.id);
+  const ticket = e.store.ticketForUser(IDS.user); assert.equal(ticket.serviceId, second.route.id);
+  await e.service.close(ticket, e.staffUser, true);
+  assert.equal(second.logs.sent.length, 1);
+  assert.match(second.logs.sent[0].files[0].attachment.toString(), /Modération/);
+  assert.equal(e.logs.sent.length, 1);
+});
+
+test('another service cannot reply, read notes, delete notes or obtain history', async t => {
+  const e = env(t), second = addService(e); await e.rawIncoming('Secret'); await e.choose(second.route.id);
+  const ticket = e.store.ticketForUser(IDS.user), ch = e.channels.get(ticket.channelId);
+  await assert.rejects(e.command('!r Intrusion', ch), /autre service/);
+  const count = e.dm.sent.length; await e.service.direct(e.msg('Intrusion directe', ch)); assert.equal(e.dm.sent.length, count);
+  await e.command('!note Secret modération', ch, e.other, second.member);
+  const noteId = e.store.state.notes[IDS.user][0].id;
+  await assert.rejects(e.command(`!delete_note ${noteId}`), /autre service/);
+  await e.service.close(ticket, e.other, true);
+  await e.command(`!notes ${IDS.user}`); assert.equal(e.team.sent.at(-1).content, 'Aucune note.');
+  await e.command(`!logs ${IDS.user}`); assert.doesNotMatch(e.team.sent.at(-1).content, /https/);
+  await e.rawIncoming('Support maintenant'); await e.choose();
+  await e.service.close(e.store.ticketForUser(IDS.user), e.staffUser, true);
+  assert.doesNotMatch(e.logs.sent[0].files[0].attachment.toString(), /Secret modération/);
+});
+
+test('selected service uses command mode; authorized staff replies without admin', async t => {
+  const e = env(t), second = addService(e); await e.rawIncoming('Question'); await e.choose(second.route.id);
+  const ticket = e.store.ticketForUser(IDS.user), ch = e.channels.get(ticket.channelId), before = e.dm.sent.length;
+  await e.service.direct(e.msg('Interne', ch, e.other, second.member)); assert.equal(e.dm.sent.length, before);
+  await e.command('!r Réponse modération', ch, e.other, second.member);
+  assert.equal(e.dm.sent.at(-1).embeds[0].toJSON().description, 'Réponse modération');
+});
+
+test('active ticket preserves access and reply mode after route settings change', async t => {
+  const e = env(t), second = addService(e); await e.incoming('Bonjour');
+  const ticket = e.store.ticketForUser(IDS.user), ch = e.channels.get(ticket.channelId);
+  Object.assign(e.store.state.config.services[0], { staffRoleIds: second.route.staffRoleIds, replyMode: 'commands' });
+  e.store.save();
+  const service = new Modmail(e.client, new Store(e.directory));
+  await service.direct(e.msg('Réponse selon ancien mode', ch));
+  assert.equal(e.dm.sent.at(-1).embeds[0].toJSON().description, 'Réponse selon ancien mode');
+  const count = e.dm.sent.length; await service.direct(e.msg('Nouveau rôle refusé', ch, e.other, second.member)); assert.equal(e.dm.sent.length, count);
+});
+
+test('removed service menu retains pending text and refreshed menu offers remaining routes', async t => {
+  const e = env(t), second = addService(e); await e.rawIncoming('Conserver');
+  e.store.state.config.services.pop();
+  await assert.rejects(e.choose(second.route.id), /retiré/);
+  assert.equal(e.store.state.pending[IDS.user].messages[0].text, 'Conserver');
+  await e.rawIncoming('!menu'); assert.equal(e.dm.sent.at(-1).components[0].toJSON().components[0].options.length, 1);
+  await e.choose(); assert.equal(e.store.ticketForUser(IDS.user).events.filter(v => v.type === 'entrant').length, 1);
+});
+
+test('blocked user cannot use an already issued chooser', async t => {
+  const e = env(t); await e.rawIncoming('Bonjour'); await e.command(`!block ${IDS.user}`);
+  await assert.rejects(e.choose(), /actuellement/); assert.equal(e.store.ticketForUser(IDS.user), undefined);
+});
+
+test('all six services save together; invalid draft cannot partially replace config', async t => {
+  const e = env(t); e.members.set(IDS.staff, e.admin); const setup = new Setup(e.client, e.store);
+  const i = { customId: 'setup:start:' + IDS.staff, guildId: IDS.guild, guild: e.guild, user: e.staffUser,
+    deferReply: async () => {}, deferUpdate: async () => {}, editReply: async p => { for (const c of p.components || []) c.toJSON(); } };
+  await setup.handle(i); const id = [...setup.sessions.keys()][0]; i.customId = `setup:presets:${id}`; await setup.handle(i);
+  const s = setup.sessions.get(id); assert.equal(s.config.services.length, 6);
+  i.customId = `setup:save:${id}`; await assert.rejects(setup.handle(i), /Modération/);
+  assert.equal(e.store.state.config.services.length, 1);
+  for (const route of s.config.services) {
+    i.customId = `setup:select:${id}`; i.values = [route.id]; await setup.handle(i);
+    for (const [action, values] of [['category', [IDS.category]], ['logs', [IDS.logs]], ['roles', [IDS.role]], ['mode', ['direct']]]) {
+      i.customId = `setup:${action}:${id}`; i.values = values; await setup.handle(i);
+    }
+    i.customId = `setup:back:${id}`; await setup.handle(i);
+  }
+  i.customId = `setup:save:${id}`; await setup.handle(i);
+  assert.equal(new Store(e.directory).state.config.services.length, 6);
+});
+
+test('setup add and rename modals serialize; session concurrency prevents lost updates', async t => {
+  const e = env(t); e.members.set(IDS.staff, e.admin); const setup = new Setup(e.client, e.store);
+  const i = { customId: 'setup:start:' + IDS.staff, guildId: IDS.guild, guild: e.guild, user: e.staffUser,
+    deferReply: async () => {}, deferUpdate: async () => {}, editReply: async () => {}, showModal: async m => { i.modal = m.toJSON(); } };
+  await setup.handle(i); const id = [...setup.sessions.keys()][0];
+  i.customId = `setup:add:${id}`; await setup.handle(i); assert.equal(i.modal.title, 'Ajouter un service');
+  i.customId = i.modal.custom_id; i.fields = { getTextInputValue: () => 'Direction' }; await setup.handle(i);
+  const s = setup.sessions.get(id); assert.equal(s.config.services.at(-1).name, 'Direction');
+  i.customId = `setup:rename:${id}`; await setup.handle(i); i.customId = i.modal.custom_id; i.fields.getTextInputValue = () => 'Responsable'; await setup.handle(i);
+  assert.equal(s.config.services.at(-1).name, 'Responsable');
+  i.customId = `setup:remove:${id}`; await setup.handle(i);
+  e.store.state.config.revision = 12;
+  i.customId = `setup:save:${id}`; await assert.rejects(setup.handle(i), /administrateur a modifié/);
+});
+
+test('legacy V2 config, notes and active conversation migrate without losing data', async t => {
+  const e = env(t); await e.incoming('Historique'); const ticket = e.store.ticketForUser(IDS.user);
+  const flat = { ...ticket.route, guildId: IDS.guild }; delete flat.id; delete flat.name;
+  e.store.state.config = flat; delete ticket.route; delete ticket.serviceId;
+  e.store.state.notes[IDS.user] = [{ id: 'old', text: 'Ancienne note', by: IDS.staff, at: Date.now() }];
+  delete e.store.state.pending; e.store.save();
+  const store = new Store(e.directory);
+  assert.equal(store.state.config.services[0].name, 'Support');
+  assert.equal(store.ticketForUser(IDS.user).route.categoryId, IDS.category);
+  assert.equal(store.state.notes[IDS.user][0].serviceId, 'support');
+  assert.match(store.archive(store.ticketForUser(IDS.user)), /Ancienne note/);
+});
+
+test('pending inbound mirror failure retries after selection without losing first text', async t => {
+  const e = env(t); await e.rawIncoming('À ne pas perdre');
+  const create = e.guild.channels.create; e.guild.channels.create = async opts => { const c = await create(opts); c.failSend = true; return c; };
+  await assert.rejects(e.choose()); const ticket = e.store.ticketForUser(IDS.user);
+  assert.equal(ticket.events.find(v => v.type === 'entrant').status, 'en_attente');
+  e.channels.get(ticket.channelId).failSend = false; await e.service.tick();
+  assert.equal(ticket.events.find(v => v.type === 'entrant').status, 'reçu');
 });
