@@ -1,15 +1,10 @@
 {
-  "name": "ticket-bot",
-  "version": "1.0.0",
+  "name": "prefecture-modmail",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Support Discord par messages privés avec configuration guidée",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "engines": {
-    "node": ">=20"
-  },
-  "dependencies": {
-    "discord.js": "^14.16.3",
-    "ms": "^2.1.3"
-  }
+  "engines": { "node": ">=22.12.0" },
+  "scripts": { "start": "node index.js", "test": "node --test", "check": "node --check index.js" },
+  "dependencies": { "discord.js": "14.27.0" }
 }
